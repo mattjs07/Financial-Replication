@@ -204,9 +204,9 @@ strategy <- function(df){   # A function that returns a dataframe with sharpe ra
   df <- mutate(group_by(df,PERMNO), RET_T1 = lead(RET,1),  rf_T1 = lead(rf,1)) %>%  ungroup() %>% relocate(RET_T1, .after = RET) %>%  relocate(rf_T1, .after = rf)
   
   D1_10 <- filter(df, deciles == 1 | deciles == 10)       #Keep observations in 1st or 10th decile
-  D1_10 <- mutate(df, Long_Short = ifelse(deciles == 1, RET_T1 - rf_T1, - rf_T1 - RET_T1 ))  #The returns from Long/Short strategy
+  D1_10 <- mutate(df, Long_Short = ifelse(deciles == 1, RET_T1 - rf_T1, rf_T1 - RET_T1 ))  #The returns from Long/Short strategy
   
-  sharpe_ratio <- data.frame( sharpe_ratio = mean(D1_10$rm_rf)/ sqrt(var(D1_10$rm_rf)))
+  sharpe_ratio <- data.frame( sharpe_ratio = mean(D1_10$Long_Short, na.rm = TRUE)/ sqrt(var(D1_10$Long_Short, na.rm = TRUE)))
   excess_ret <- data.frame( excess_ret = mean(D1_10$Long_Short, na.rm = TRUE)) #Excess returns computed from Long-short strategy's returns
   alpha = lm(data = D1_10 , Long_Short ~ rm_rf) %>% summary()
   alpha <- data.frame( alpha = alpha$coefficients[1,1])
@@ -235,5 +235,5 @@ grid.arrange(tableGrob(strat_a1))
 
 #Finally binding the results into one dataframe to compare !! 
 STRATEGIES <- rbind(strat, strat_11, strat_a1)
-rownames( STRATEGIES) <-  c("Q2", "Q3", "Q4")
+rownames(STRATEGIES) <-  c("Q2", "Q3", "Q4")
 grid.arrange(tableGrob(STRATEGIES))
