@@ -8,6 +8,7 @@ library(future) # for parallelization
 library(furrr)
 library(beepr)
 library(gtable)
+library(zoo)
 
 
 setwd("C:/Users/matti/Desktop/M2_S2/Financial_Econ/Replication_paper")
@@ -147,10 +148,10 @@ data <- mutate(data, cap = SHROUT * PRC, ri_rf = RET - rf) #Adding a column for 
 data <- data %>%  group_by(date) %>% mutate(deciles = as.integer(quantcut(U, 10)) ) %>% ungroup()
 data <- arrange(data, PERMNO, date)
 
-data <- mutate(group_by(data,PERMNO), RET_T1 = lead(RET,1),  rf_T1 = lead(rf,1), ri_rf_T1 = lead(ri_rf,1)) %>%  ungroup() %>% relocate(RET_T1, .after = RET) %>%  relocate(rf_T1, .after = rf)
+data <- mutate(group_by(data,PERMNO), RET_T1 = lead(RET,1),  rf_T1 = lead(rf,1), ri_rf_T1 = lead(ri_rf,1),  rm_rf_T1 = lead(rm_rf, 1)) %>%  ungroup() %>% relocate(RET_T1, .after = RET) %>%  relocate(rf_T1, .after = rf)
 #New columns with returns at t+1 and risk free at t+1.
 
-stat1 <- data %>% group_by(deciles) %>% summarise( E_ret1 = mean(RET_T1, na.rm = TRUE    ), E_ri_rf = mean(ri_rf),  E_rm = mean(rm_rf))
+stat1 <- data %>% group_by(deciles) %>% summarise( E_RET_t1 = mean(RET_T1, na.rm = TRUE    ), E_ri_rf = mean(ri_rf),  E_rm_rf = mean(rm_rf))
 data <- as.data.table(data)
 stat2 <- data[ cap >= 1, .(E_logcap = mean(log(cap))), by = deciles] # Filter out the obs for which cap <1 to avoid -Inf
 stat <- merge(stat1, stat2)
@@ -159,21 +160,28 @@ stat <- merge(stat1, stat2)
 param = lapply( FUN = function(x){ z <- lm(data = subset(data, deciles == x) , ri_rf ~ rm_rf)%>% summary(); return(data.frame(alpha =  z$coefficients[1,1], betas = z$coefficients[2,1]))}, X = 1:10)
 param = param %>%  rbindlist()
 dd <- cbind(stat, param)
+print(xtable(dd, digits = 4), include.rownames=FALSE)
 
+param2 = lapply( FUN = function(x){ z <- lm(data = subset(data, deciles == x) , ri_rf_T1 ~ rm_rf_T1)%>% summary(); return(data.frame(alpha =  z$coefficients[1,1], betas = z$coefficients[2,1]))}, X = 1:10)
+param2 = param2 %>%  rbindlist()
+
+PARAM <- rbind(param, param2)
+PARAM <- data.frame(grp = as.factor(rep(1:2, each = 10)), x = rep(1:10,2), PARAM)
 #some visual supports
-p_b <- ggplot(data = cbind(dd, x = 1:10), aes(y = betas, x= x)) + geom_point() + geom_line(aes(color = "red"), show.legend = FALSE) + 
+p_b <- ggplot(data = PARAM, aes(y = betas, x= x, color = grp)) + geom_point(show.legend = F) + geom_line(show.legend = FALSE) + 
   ylim(0,1.5) + scale_x_discrete(name ="Deciles",limits= factor(1:10)) + labs(title = TeX("CAPM $\\beta_{i} $ per deciles ")) +
-  theme( plot.title = element_text(hjust = 0.5))
+  theme( plot.title = element_text(hjust = 0.5)) + scale_color_discrete(name = "Time", labels = c("t", "t+1"));p_b
 
-p_a <- ggplot(data = cbind(dd, x = 1:10), aes(y = alpha, x= x)) + geom_point() + geom_line(aes(color = "red"), show.legend = FALSE) + 
+p_a <- ggplot(data = PARAM, aes(y = alpha, x= x, color = grp)) + geom_point() + geom_line( show.legend = FALSE) + 
   ylim(-0.05, 0.05) + scale_x_discrete(name ="Deciles",limits= factor(1:10)) + labs(title = TeX("CAPM $\\alpha_{i} $ per deciles ")) +
-  theme( plot.title = element_text(hjust = 0.5))
+  theme( plot.title = element_text(hjust = 0.5)) + scale_color_discrete(name = "Time", labels = c("t", "t+1"));p_a
 
 grid.arrange(tableGrob(dd), p_b, p_a, nrow = 2, layout_matrix = rbind(c(1,1), c(2,3)))
-xtable(dd, digits= 4)
+
 ### Prospective utility evolution by deciles 
 
 graph <- data[, .(mean_U = mean(U), mean_RET_t1 = mean(RET_T1, na.rm = TRUE)), by = .(deciles, date)]
+graph <- mutate(graph, date = as.yearmon(as.character(date), "%Y%m"))
 graph$deciles <- as.factor(graph$deciles)
 
 cc <- scales::seq_gradient_pal("blue", "yellow", "Lab")(seq(0,1,length.out = 10))
@@ -224,7 +232,7 @@ descriptive <- data[, .(mean_U = mean(U), mean_RET = mean(RET, na.rm = T), mean_
                         mean_ri_rf = mean(ri_rf, na.rm = T),  mean_ri_rf_t1 = mean(ri_rf_T1, na.rm = T), mean_PRC = mean(PRC, na.rm = T)), by = .(deciles)]
 descriptive <- descriptive  %>% arrange(deciles)
 tableGrob(descriptive) %>% grid.arrange()
-xtable(descriptive, digits= 4)
+print(xtable(descriptive, digits = 4), include.rownames=FALSE)
 
 
 #####################################
@@ -279,11 +287,6 @@ variable <- rep(names(STRATEGIES), each = 3)
 grp <- rep(2:4, 3)
 
 STR <- data.frame( grp = as.factor(grp), variable, values)
-
-ggplot(data = data.frame(STRATEGIES, grp = as.factor(1:3))) + geom_col(aes(x = grp ,y= sharpe_ratio, fill = grp)) +
-  geom_point(aes(x = grp ,y= excess_ret), shape = 17, size = 3) + 
-  geom_point(aes(x = grp ,y= alpha), shape = 1, size = 3) + facet_grid( ~ grp) 
-
 
 by_grp <- ggplot(data = STR) + geom_col(aes(x = variable, y = values,  fill = grp),show.legend = FALSE) + facet_grid( ~ grp) + 
   theme(axis.text.x = element_text(angle = 15)) + aes(fill = grp) + labs(title = "Long Short strategy return statistics", x = "") + 
