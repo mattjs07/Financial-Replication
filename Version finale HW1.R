@@ -23,7 +23,7 @@ returns$date <- substr(returns$date, 0, 6) #matching formats, keep only the firs
 returns$date <- as.integer(returns$date) # So that types match
 excess <- rename(excess, date = V1) # so that name match
 
-df <- merge.data.table(returns, excess, by = c("date"), all.x = TRUE, all.y = FALSE)
+df <- merge.data.table(returns, excess, by = c("date"), all.x = TRUE, all.y = FALSE)    
 
 df <- df %>%mutate(PRC = abs(PRC)) #taking absolute value 
 df <- df %>%  arrange(PERMNO, date) #arrange in ascending order by PERMNO and date
@@ -144,23 +144,7 @@ fwrite(Stocks_a1, "Prospect_All_alpha.csv")
 data <- fread("Prospect_Allv2.csv")   ## The dataset with the prospective utilities for Question 1 
 data <- mutate(data, cap = SHROUT * PRC, ri_rf = RET - rf) #Adding a column for excess returns called ri_rf
 
-
-DATES <- as.list(unique(data$date)) #list with all DATES, needed for following functions
-
-Quantiles_All =  function(liste, df){     #This function assign PERMNO to a decile for Every t 
-  
-  Quantiles_T =  function(x, dt = df){
-    d <- filter(dt, date == x)
-    d <- cbind(d, deciles = as.integer(quantcut(d$U, 10)) )
-    return(d)
-  }
-  
-  d <- future_map(liste, Quantiles_T, .progress = TRUE )
-  beep()
-  return(rbindlist(d))
-}
-
-data <- Quantiles_All(liste = DATES, df = data) 
+data <- data %>%  group_by(date) %>% mutate(deciles = as.integer(quantcut(U, 10)) ) %>% ungroup()
 data <- arrange(data, PERMNO, date)
 
 data <- mutate(group_by(data,PERMNO), RET_T1 = lead(RET,1),  rf_T1 = lead(rf,1), ri_rf_T1 = lead(ri_rf,1)) %>%  ungroup() %>% relocate(RET_T1, .after = RET) %>%  relocate(rf_T1, .after = rf)
@@ -186,7 +170,7 @@ p_a <- ggplot(data = cbind(dd, x = 1:10), aes(y = alpha, x= x)) + geom_point() +
   theme( plot.title = element_text(hjust = 0.5))
 
 grid.arrange(tableGrob(dd), p_b, p_a, nrow = 2, layout_matrix = rbind(c(1,1), c(2,3)))
-
+xtable(dd, digits= 4)
 ### Prospective utility evolution by deciles 
 
 graph <- data[, .(mean_U = mean(U), mean_RET_t1 = mean(RET_T1, na.rm = TRUE)), by = .(deciles, date)]
@@ -202,7 +186,7 @@ Av_U <- ggplot(graph, aes(x = date, y = mean_U, color = deciles)) + geom_smooth(
 
 Av_RET_t1 <- ggplot(graph, aes(x = date, y = mean_RET_t1, color = deciles)) + geom_smooth(size = 0.75, se = F) + 
   scale_colour_manual(values=cc) + labs(x = "date", y = "Average Returns at t+1", title = "Average Returns at t+1 by deciles") + 
-  theme(plot.title = element_text(hjust = 0.5))  + guides(colour = guide_legend(reverse=T))
+  theme(plot.title = element_text(hjust = 0.5))
 
 grid.arrange(Av_U, Av_RET_t1, nrow = 2)
 
@@ -226,20 +210,22 @@ add_plot <-  ggplot(ret_by_date) + geom_col(aes(x = year,y = var_ret), fill = "l
   labs(caption = "In the bottom graph the variance of returns in each year is displayed in blue. The share of observations for a given year is displayed in red (as might explain size of variance)") + 
   theme(plot.caption = element_text(hjust = 0))
 
-
-ggplot(ret_by_date) + geom_smooth( aes(x = n, y = var_ret))
-lm( data  = ret_by_date, var_ret ~ n ) %>%  summary()
-
-
 g2 <- ggplotGrob(ret_plot)
 g3 <- ggplotGrob(add_plot)
 g <- rbind(g2, g3, size = "first")
 grid.arrange(g)
 
+ggplot(ret_by_date) + geom_smooth( aes(x = n, y = var_ret))
+lm( data  = ret_by_date, var_ret ~ n ) %>%  summary()
+
+
+
 descriptive <- data[, .(mean_U = mean(U), mean_RET = mean(RET, na.rm = T), mean_RET_t1 = mean(RET_T1, na.rm = TRUE),
                         mean_ri_rf = mean(ri_rf, na.rm = T),  mean_ri_rf_t1 = mean(ri_rf_T1, na.rm = T), mean_PRC = mean(PRC, na.rm = T)), by = .(deciles)]
-
+descriptive <- descriptive  %>% arrange(deciles)
 tableGrob(descriptive) %>% grid.arrange()
+xtable(descriptive, digits= 4)
+
 
 #####################################
 ########### QUESTION 2 ##############
@@ -250,15 +236,13 @@ strategy <- function(df){   # A function that returns a dataframe with sharpe ra
                                                     #Allows to code only once and reuse the function in Q2 / Q3 / Q4 
   df <- mutate(df, ri_rf = RET - rf)
   
-  DATES <- as.list(unique(data$date))
-  
-  df <- Quantiles_All(liste = DATES, df = df)
+  df <- df %>%  group_by(date) %>% mutate(deciles = as.integer(quantcut(U, 10)) ) %>% ungroup()
   df <- arrange(df, PERMNO, date)
   
-  df <- mutate(group_by(df,PERMNO), RET_T1 = lead(RET,1),  rf_T1 = lead(rf,1), rm_rf_T1 = lead(rm_rf, 1)) %>%  ungroup() %>% relocate(RET_T1, .after = RET) %>%  relocate(rf_T1, .after = rf) %>% relocate(rm_rf_T1, .after = rm_rf) 
+  df <- df %>% group_by(PERMNO) %>%  mutate( RET_T1 = lead(RET,1),  rf_T1 = lead(rf,1), rm_rf_T1 = lead(rm_rf, 1)) %>%  ungroup()
   
   D1_10 <- filter(df, deciles == 1 | deciles == 10)       #Keep observations in 1st or 10th decile
-  D1_10 <- mutate(df, Long_Short = ifelse(deciles == 1, RET_T1 - rf_T1, rf_T1 - RET_T1 ))  #The returns from Long/Short strategy
+  D1_10 <- mutate(D1_10, Long_Short = ifelse(deciles == 1, RET_T1 - rf_T1, rf_T1 - RET_T1 ))  #The returns from Long/Short strategy
   
   sharpe_ratio <- data.frame( sharpe_ratio = mean(D1_10$Long_Short, na.rm = TRUE)/ sqrt(var(D1_10$Long_Short, na.rm = TRUE)))
   excess_ret <- data.frame( excess_ret = mean(D1_10$Long_Short, na.rm = TRUE)) #Excess returns computed from Long-short strategy's returns
@@ -269,25 +253,57 @@ strategy <- function(df){   # A function that returns a dataframe with sharpe ra
 }
 
 data <- fread("Prospect_Allv2.csv") #Takes the "raw" version of the dataframe since everything is done INSIDE the function (quantiles)
-
+ 
 strat <- strategy(data)
-grid.arrange(tableGrob(strat))
+
 
 ##### QUestion 3 ####
 
 data11 <- fread("Prospect_All_11.csv")
 
 strat_11 <- strategy(data11)
-grid.arrange(tableGrob(strat_11))
 
 #### Question 4 #####
 
 data_a1 <- fread("Prospect_All_alpha.csv")
 
 strat_a1 <- strategy(data_a1)
-grid.arrange(tableGrob(strat_a1))
 
 #Finally binding the results into one dataframe to compare !! 
 STRATEGIES <- rbind(strat, strat_11, strat_a1)
 rownames(STRATEGIES) <-  c("Q2", "Q3", "Q4")
 grid.arrange(tableGrob(STRATEGIES))
+
+values <- c(STRATEGIES$sharpe_ratio,  STRATEGIES$excess_ret, STRATEGIES$alpha)
+variable <- rep(names(STRATEGIES), each = 3)
+grp <- rep(2:4, 3)
+
+STR <- data.frame( grp = as.factor(grp), variable, values)
+
+ggplot(data = data.frame(STRATEGIES, grp = as.factor(1:3))) + geom_col(aes(x = grp ,y= sharpe_ratio, fill = grp)) +
+  geom_point(aes(x = grp ,y= excess_ret), shape = 17, size = 3) + 
+  geom_point(aes(x = grp ,y= alpha), shape = 1, size = 3) + facet_grid( ~ grp) 
+
+
+by_grp <- ggplot(data = STR) + geom_col(aes(x = variable, y = values,  fill = grp),show.legend = FALSE) + facet_grid( ~ grp) + 
+  theme(axis.text.x = element_text(angle = 15)) + aes(fill = grp) + labs(title = "Long Short strategy return statistics", x = "") + 
+  theme(plot.title = element_text(hjust = 0.5)) + labs(fill = "Question")
+
+
+by_var <- ggplot(data = STR) + geom_col(aes(x = grp, y = values, fill = grp)) + 
+  facet_grid( ~ variable)  + labs(x = "") + labs(fill = "Question") + theme(legend.position="bottom")
+
+grid.arrange(by_grp, by_var, nrow = 2)
+
+
+
+
+
+
+
+
+
+
+
+
+
