@@ -282,6 +282,8 @@ STRATEGIES <- rbind(strat, strat_11, strat_a1)
 rownames(STRATEGIES) <-  c("Q2", "Q3", "Q4")
 grid.arrange(tableGrob(STRATEGIES))
 
+print(xtable(STRATEGIES, digits = 5))
+
 values <- c(STRATEGIES$sharpe_ratio,  STRATEGIES$excess_ret, STRATEGIES$alpha)
 variable <- rep(names(STRATEGIES), each = 3)
 grp <- rep(2:4, 3)
